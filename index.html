@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1.0">
+  <title>MCDA TOPSIS – Interface Web</title>
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.3.1/papaparse.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.3.0/dist/chart.umd.min.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; }
+    h1 { color: #333; }
+    .control { margin: 10px 0; }
+    table { border-collapse: collapse; width: 100%; margin-top: 20px; }
+    th, td { border: 1px solid #ccc; padding: 8px; text-align: center; }
+    th { background-color: #f0f0f0; }
+    button { padding: 8px 12px; margin-top: 10px; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <h1>🔍 TOPSIS – Prise de Décision Multicritères</h1>
+  <div class="control">
+    <label for="csvFile">Importer un CSV (1ère col. = alternatives, suivantes = critères) :</label>
+    <input type="file" id="csvFile" accept=".csv">
+  </div>
+  <button id="calcBtn">▶ Calculer TOPSIS</button>
+
+  <div id="result"></div>
+  <div id="chartContainer"><canvas id="scoreChart"></canvas></div>
+
+  <script>
+    const fileInput = document.getElementById('csvFile'),
+          calcBtn   = document.getElementById('calcBtn');
+    let rawData = [];
+
+    fileInput.addEventListener('change', () => {
+      if (!fileInput.files.length) return;
+      Papa.parse(fileInput.files[0], {
+        header: true, dynamicTyping: true, skipEmptyLines: true,
+        complete: res => {
+          rawData = res.data;
+          alert(`CSV chargé (${rawData.length} lignes). Cliquez sur Calculer.`);
+        },
+        error: err => alert('Erreur CSV: ' + err.message)
+      });
+    });
+
+    calcBtn.addEventListener('click', () => {
+      if (!rawData.length) return alert('Importez d’abord un CSV valide.');
+      const headers = Object.keys(rawData[0]),
+            altKey  = headers[0],
+            crits   = headers.slice(1),
+            m       = rawData.length,
+            n       = crits.length;
+
+      const matrix = rawData.map(r => crits.map(c => parseFloat(r[c])||0));
+
+      const normCols = crits.map((_, j) => {
+        const col = matrix.map(r => r[j]),
+              denom = Math.hypot(...col);
+        return col.map(v => denom ? v/denom : 0);
+      });
+      const norm = Array.from({length: m}, (_,i) => normCols.map(c => c[i]));
+
+      const weights    = Array(n).fill(1/n);
+      const beneficial = Array(n).fill(true);
+      const weighted   = norm.map(r => r.map((v,j) => v * weights[j]));
+
+      const ideaux = crits.map((_,j) => {
+        const col = weighted.map(r => r[j]);
+        return { best: Math.max(...col), worst: Math.min(...col) };
+      });
+
+      const scores = weighted.map(r => {
+        let dB=0, dW=0;
+        r.forEach((v,j) => {
+          dB += (v - ideaux[j].best)**2;
+          dW += (v - ideaux[j].worst)**2;
+        });
+        dB = Math.sqrt(dB);
+        dW = Math.sqrt(dW);
+        return dW / (dB + dW);
+      });
+
+      let html = '<h2>Résultats TOPSIS</h2>'
+               + '<table><thead><tr><th>Alternative</th><th>Score</th><th>Rang</th></tr></thead><tbody>';
+      rawData
+        .map((r,i) => ({ alt: r[altKey], sc: scores[i] }))
+        .sort((a,b) => b.sc - a.sc)
+        .forEach((o,i) => {
+          html += `<tr><td>${o.alt}</td><td>${o.sc.toFixed(4)}</td><td>${i+1}</td></tr>`;
+        });
+      html += '</tbody></table>';
+      document.getElementById('result').innerHTML = html;
+
+      new Chart(document.getElementById('scoreChart'), {
+        type: 'bar',
+        data: {
+          labels: rawData.map(r => r[altKey]),
+          datasets: [{ label: 'Score', data: scores }]
+        },
+        options: { responsive: true }
+      });
+    });
+  </script>
+</body>
+</html>
